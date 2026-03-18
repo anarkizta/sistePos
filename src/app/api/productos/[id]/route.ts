@@ -1,0 +1,57 @@
+import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
+
+type Params = { params: Promise<{ id: string }> };
+
+// GET /api/productos/[id]
+export async function GET(_req: Request, { params }: Params) {
+  const { id } = await params;
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: Number(id) },
+    });
+    if (!product) {
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
+    return NextResponse.json(product);
+  } catch (error) {
+    console.error(`Error en GET /api/productos/${id}:`, error);
+    return NextResponse.json({ error: "Error al obtener producto" }, { status: 500 });
+  }
+}
+
+// PUT /api/productos/[id]
+export async function PUT(req: Request, { params }: Params) {
+  const { id } = await params;
+  try {
+    const data = await req.json();
+    const product = await prisma.product.update({
+      where: { id: Number(id) },
+      data: {
+        name: data.name,
+        barcode: data.barcode || null,
+        description: data.description || null,
+        price: parseFloat(data.price),
+        stock: parseInt(data.stock),
+      },
+    });
+    return NextResponse.json(product);
+  } catch (error) {
+    console.error(`Error en PUT /api/productos/${id}:`, error);
+    return NextResponse.json({ error: "Error al actualizar producto" }, { status: 500 });
+  }
+}
+
+// DELETE /api/productos/[id]
+export async function DELETE(_req: Request, { params }: Params) {
+  const { id } = await params;
+  try {
+    await prisma.product.delete({
+      where: { id: Number(id) },
+    });
+    return NextResponse.json({ message: "Producto eliminado correctamente" });
+  } catch (error) {
+    console.error(`Error en DELETE /api/productos/${id}:`, error);
+    return NextResponse.json({ error: "Error al eliminar producto" }, { status: 500 });
+  }
+}
