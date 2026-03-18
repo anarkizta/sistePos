@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -38,6 +39,17 @@ export async function PUT(req: Request, { params }: Params) {
     return NextResponse.json(product);
   } catch (error) {
     console.error(`Error en PUT /api/productos/${id}:`, error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2002") {
+        return NextResponse.json(
+          { error: "Ya existe un producto con ese código de barras" },
+          { status: 409 }
+        );
+      }
+      if (error.code === "P2025") {
+        return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+      }
+    }
     return NextResponse.json({ error: "Error al actualizar producto" }, { status: 500 });
   }
 }
@@ -52,6 +64,11 @@ export async function DELETE(_req: Request, { params }: Params) {
     return NextResponse.json({ message: "Producto eliminado correctamente" });
   } catch (error) {
     console.error(`Error en DELETE /api/productos/${id}:`, error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") {
+        return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+      }
+    }
     return NextResponse.json({ error: "Error al eliminar producto" }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 // GET /api/productos → Listar todos los productos
 export async function GET() {
@@ -39,6 +40,14 @@ export async function POST(request: Request) {
     return NextResponse.json(product, { status: 201 });
   } catch (error) {
     console.error("Error en POST /api/productos:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2002") {
+        return NextResponse.json(
+          { error: "Ya existe un producto con ese código de barras" },
+          { status: 409 }
+        );
+      }
+    }
     return NextResponse.json({ error: "Error al crear producto" }, { status: 500 });
   }
 }
