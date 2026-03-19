@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Plus, Search, Edit2, Trash2, Package, X, AlertTriangle } from "lucide-react";
+import PermissionPrompt from "@/components/PermissionPrompt";
 
 type Product = {
   id: number;
@@ -35,6 +36,14 @@ export default function ProductosPage() {
   // Confirmación de eliminación
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Solicitud de permiso (override)
+  const [permissionPromptOpen, setPermissionPromptOpen] = useState(false);
+  const [requiredPermission, setRequiredPermission] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<null | { type: "delete"; productId: number }>(
+    null,
+  );
+  const [authorizationId, setAuthorizationId] = useState<number | null>(null);
 
   // ─── Fetch ───────────────────────────────────────────────────────────────
   const fetchProducts = async () => {
@@ -128,9 +137,22 @@ export default function ProductosPage() {
   const handleDelete = async (id: number) => {
     setDeleting(true);
     try {
-      const res = await fetch(`/api/productos/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Error al eliminar");
+      const res = await fetch(`/api/productos/${id}`, {
+        method: "DELETE",
+        headers: authorizationId ? { "x-sp-authorization-id": String(authorizationId) } : undefined,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (res.status === 403 && err?.requiredPermission) {
+          setRequiredPermission(String(err.requiredPermission));
+          setPendingAction({ type: "delete", productId: id });
+          setPermissionPromptOpen(true);
+          return;
+        }
+        throw new Error(err?.error ?? "Error al eliminar");
+      }
       setDeletingId(null);
+      setAuthorizationId(null);
       fetchProducts();
     } catch (error) {
       console.error(error);
@@ -372,6 +394,27 @@ export default function ProductosPage() {
           </div>
         </div>
       )}
+
+      <PermissionPrompt
+        open={permissionPromptOpen && !!requiredPermission}
+        requiredPermission={requiredPermission ?? ""}
+        context={
+          pendingAction?.type === "delete"
+            ? { action: "producto_borrar", productId: pendingAction.productId }
+            : null
+        }
+        onClose={() => {
+          setPermissionPromptOpen(false);
+          setRequiredPermission(null);
+          setPendingAction(null);
+        }}
+        onApproved={(authId) => {
+          setAuthorizationId(authId);
+          if (pendingAction?.type === "delete") {
+            handleDelete(pendingAction.productId);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -7,6 +7,39 @@ datasource db {
   provider = "mysql"
 }
 
+enum CredentialType {
+  PIN
+  PASSWORD
+}
+
+enum OverrideEffect {
+  ALLOW
+  DENY
+}
+
+enum SessionEndReason {
+  LOGOUT
+  TIMEOUT
+  FORCED
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum AuthorizationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum AuditResult {
+  SUCCESS
+  FAIL
+}
+
 model Customer {
   id        Int      @id @default(autoincrement())
   rut       String?  @unique(map: "Customer_rut_key")
@@ -30,4 +63,289 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   @@map("product")
+}
+
+model Store {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "Store_code_key") @db.VarChar(30)
+  name      String   @db.VarChar(120)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  terminals  Terminal[]
+  storeUsers StoreUser[]
+  shifts     Shift[]
+  sessions   AuthSession[]
+
+  @@map("store")
+}
+
+model Terminal {
+  id        Int      @id @default(autoincrement())
+  storeId   Int
+  code      String   @db.VarChar(60)
+  name      String   @db.VarChar(120)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  sessions AuthSession[]
+  shifts   Shift[]
+  loginAttempts LoginAttempt[]
+
+  @@unique([storeId, code], map: "Terminal_storeId_code_key")
+  @@index([storeId], map: "Terminal_storeId_idx")
+  @@map("terminal")
+}
+
+model User {
+  id             Int            @id @default(autoincrement())
+  username       String         @unique(map: "User_username_key") @db.VarChar(50)
+  displayName    String         @db.VarChar(120)
+  credentialType CredentialType @default(PASSWORD)
+
+  pinHash      String? @db.VarChar(255)
+  passwordHash String? @db.VarChar(255)
+
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  userRoles           UserRole[]
+  permissionOverrides UserPermissionOverride[] @relation("upo_user")
+  permissionOverridesCreated UserPermissionOverride[] @relation("upo_created_by")
+  sessions            AuthSession[]
+  loginAttempts       LoginAttempt[]
+
+  storeUsers StoreUser[]
+  shifts     Shift[]
+
+  auditEvents            AuditEvent[] @relation("audit_actor")
+  auditEventsImpersonate AuditEvent[] @relation("audit_impersonator")
+
+  authorizationsRequested ActionAuthorization[] @relation("auth_requested_by")
+  authorizationsApproved  ActionAuthorization[] @relation("auth_approved_by")
+
+  @@map("user")
+}
+
+model StoreUser {
+  storeId  Int
+  userId   Int
+  isActive Boolean @default(true)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([storeId, userId])
+  @@index([userId], map: "StoreUser_userId_idx")
+  @@map("store_user")
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique(map: "Role_code_key") @db.VarChar(30)
+  name      String   @db.VarChar(80)
+  createdAt DateTime @default(now())
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("role")
+}
+
+model Permission {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique(map: "Permission_code_key") @db.VarChar(80)
+  name        String  @db.VarChar(120)
+  description String? @db.VarChar(255)
+
+  rolePermissions         RolePermission[]
+  userPermissionOverrides UserPermissionOverride[]
+
+  @@map("permission")
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@index([roleId], map: "UserRole_roleId_idx")
+  @@map("user_role")
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId], map: "RolePermission_permissionId_idx")
+  @@map("role_permission")
+}
+
+model UserPermissionOverride {
+  userId       Int
+  permissionId Int
+  effect       OverrideEffect
+
+  createdByUserId Int
+  createdAt       DateTime @default(now())
+
+  user       User       @relation("upo_user", fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdBy  User       @relation("upo_created_by", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@id([userId, permissionId])
+  @@index([createdByUserId], map: "UserPermissionOverride_createdByUserId_idx")
+  @@map("user_permission_override")
+}
+
+model AuthSession {
+  id         Int @id @default(autoincrement())
+  userId     Int
+  storeId    Int?
+  terminalId Int?
+
+  startedAt DateTime @default(now())
+  expiresAt DateTime
+  endedAt   DateTime?
+  endReason SessionEndReason?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  store    Store?    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  terminal Terminal? @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+
+  @@index([userId, startedAt], map: "AuthSession_userId_startedAt_idx")
+  @@index([expiresAt], map: "AuthSession_expiresAt_idx")
+  @@index([terminalId], map: "AuthSession_terminalId_idx")
+  @@map("auth_session")
+}
+
+model LoginAttempt {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  username  String   @db.VarChar(50)
+  createdAt DateTime @default(now())
+
+  success Boolean
+  reason  String? @db.VarChar(80)
+  ip      String? @db.VarChar(64)
+
+  terminalId Int?
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  terminal Terminal? @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+
+  @@index([username, createdAt], map: "LoginAttempt_username_createdAt_idx")
+  @@index([userId, createdAt], map: "LoginAttempt_userId_createdAt_idx")
+  @@map("login_attempt")
+}
+
+model Shift {
+  id         Int        @id @default(autoincrement())
+  storeId    Int
+  terminalId Int
+  userId     Int
+
+  status   ShiftStatus @default(OPEN)
+  openedAt DateTime    @default(now())
+  closedAt DateTime?
+
+  openingCashAmount Decimal  @db.Decimal(12, 2)
+  closingCashAmount Decimal? @db.Decimal(12, 2)
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  terminal Terminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  auditEvents     AuditEvent[]
+  authorizations  ActionAuthorization[]
+
+  @@index([storeId, openedAt], map: "Shift_storeId_openedAt_idx")
+  @@index([userId, openedAt], map: "Shift_userId_openedAt_idx")
+  @@index([terminalId, openedAt], map: "Shift_terminalId_openedAt_idx")
+  @@map("shift")
+}
+
+model ActionAuthorization {
+  id Int @id @default(autoincrement())
+
+  requestedAt       DateTime @default(now())
+  requestedByUserId Int
+  shiftId           Int?
+
+  permissionCode String @db.VarChar(80)
+  contextJson     Json?
+
+  status AuthorizationStatus @default(PENDING)
+
+  authorizedAt       DateTime?
+  authorizedByUserId Int?
+
+  usedAt DateTime?
+  usedAction String? @db.VarChar(80)
+
+  requestedBy User  @relation("auth_requested_by", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  approvedBy  User? @relation("auth_approved_by", fields: [authorizedByUserId], references: [id], onDelete: Restrict)
+  shift       Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([requestedByUserId, requestedAt], map: "ActionAuthorization_requestedByUserId_requestedAt_idx")
+  @@index([status, requestedAt], map: "ActionAuthorization_status_requestedAt_idx")
+  @@index([shiftId], map: "ActionAuthorization_shiftId_idx")
+  @@map("action_authorization")
+}
+
+model AuditEvent {
+  id        Int         @id @default(autoincrement())
+  createdAt DateTime    @default(now())
+  result    AuditResult @default(SUCCESS)
+
+  actorUserId Int
+  shiftId     Int?
+
+  impersonatorUserId Int?
+
+  action     String  @db.VarChar(80)
+  entityType String? @db.VarChar(40)
+  entityId   Int?
+  message    String? @db.VarChar(255)
+
+  dataJson Json?
+
+  actor        User  @relation("audit_actor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  impersonator User? @relation("audit_impersonator", fields: [impersonatorUserId], references: [id], onDelete: SetNull)
+  shift        Shift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  fields AuditEventField[]
+
+  @@index([actorUserId, createdAt], map: "AuditEvent_actorUserId_createdAt_idx")
+  @@index([shiftId, createdAt], map: "AuditEvent_shiftId_createdAt_idx")
+  @@index([action, createdAt], map: "AuditEvent_action_createdAt_idx")
+  @@index([entityType, entityId], map: "AuditEvent_entityType_entityId_idx")
+  @@map("audit_event")
+}
+
+model AuditEventField {
+  id           Int @id @default(autoincrement())
+  auditEventId Int
+
+  fieldPath String @db.VarChar(200)
+  oldValue  String? @db.Text
+  newValue  String? @db.Text
+
+  auditEvent AuditEvent @relation(fields: [auditEventId], references: [id], onDelete: Cascade)
+
+  @@index([auditEventId], map: "AuditEventField_auditEventId_idx")
+  @@map("audit_event_field")
 }
