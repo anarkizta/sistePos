@@ -99,6 +99,17 @@ export async function assertHasPermission(userId: number, permissionCode: string
   }
 }
 
+/** Cumple si tiene al menos uno de los permisos indicados. */
+export async function assertHasAnyPermission(userId: number, permissionCodes: string[]) {
+  const perms = await getEffectivePermissionCodes(userId);
+  const ok = permissionCodes.some((c) => perms.has(c));
+  if (!ok) {
+    const err = new AuthError("No autorizado", 403);
+    err.requiredPermission = permissionCodes.join(" | ");
+    throw err;
+  }
+}
+
 export async function assertHasPermissionOrAuthorization(
   userId: number,
   permissionCode: string,

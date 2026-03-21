@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Home, Package, Users, ShoppingCart, Clock } from "lucide-react";
+import { Home, Package, Users, ShoppingCart, Clock, UserCog } from "lucide-react";
 import LogoutButton from "@/components/LogoutButton";
 
 export default function Sidebar() {
@@ -8,6 +8,7 @@ export default function Sidebar() {
     { name: "Turnos / Caja", icon: Clock, href: "/turnos" },
     { name: "Productos", icon: Package, href: "/productos" },
     { name: "Clientes", icon: Users, href: "/clientes" },
+    { name: "Usuarios", icon: UserCog, href: "/usuarios" },
   ];
 
   return (
