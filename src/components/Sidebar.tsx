@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { Home, Package, Users, ShoppingCart, Settings, LogOut } from "lucide-react";
+import { Home, Package, Users, ShoppingCart, Clock, LogOut } from "lucide-react";
 
 export default function Sidebar() {
   const menuItems = [
     { name: "Punto de Venta", icon: ShoppingCart, href: "/" },
+    { name: "Turnos / Caja", icon: Clock, href: "/turnos" },
     { name: "Productos", icon: Package, href: "/productos" },
     { name: "Clientes", icon: Users, href: "/clientes" },
   ];

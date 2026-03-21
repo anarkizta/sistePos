@@ -57,6 +57,9 @@ async function main() {
     { code: "rol_asignar", name: "Asignar roles" },
     { code: "cliente_consultar", name: "Consultar clientes" },
     { code: "cliente_gestionar", name: "Crear editar y eliminar clientes" },
+    { code: "turno_abrir", name: "Abrir turno de caja" },
+    { code: "turno_cerrar", name: "Cerrar turno de caja propio" },
+    { code: "turno_arqueo", name: "Arqueo y cierre de turno de otros" },
   ];
 
   for (const perm of permissions) {
@@ -77,6 +80,8 @@ async function main() {
     "descuento_aplicar",
     "cliente_consultar",
     "cliente_gestionar",
+    "turno_abrir",
+    "turno_cerrar",
   ];
 
   const supervisorPerms = [
@@ -87,6 +92,7 @@ async function main() {
     "producto_editar",
     "producto_precio_cambiar",
     "reporte_ventas_ver",
+    "turno_arqueo",
   ];
 
   const adminPerms = permissions.map((p) => p.code);
@@ -178,6 +184,38 @@ async function main() {
       update: {},
       create: { userId: user.id, roleId: adminRole.id },
     });
+  }
+
+  // Sucursal y caja por defecto (desarrollo / primer uso)
+  const defaultStore = await prisma.store.upsert({
+    where: { code: "PRINCIPAL" },
+    update: {},
+    create: { code: "PRINCIPAL", name: "Sucursal principal" },
+  });
+
+  await prisma.terminal.upsert({
+    where: {
+      storeId_code: { storeId: defaultStore.id, code: "CAJA01" },
+    },
+    update: { name: "Caja 1", isActive: true },
+    create: {
+      storeId: defaultStore.id,
+      code: "CAJA01",
+      name: "Caja 1",
+      isActive: true,
+    },
+  });
+
+  // Enlazar admin seed a sucursal principal (cajero en otras cuentas: agregar store_user manual o modulo usuarios)
+  if (adminUsername) {
+    const u = await prisma.user.findUnique({ where: { username: adminUsername } });
+    if (u) {
+      await prisma.storeUser.upsert({
+        where: { storeId_userId: { storeId: defaultStore.id, userId: u.id } },
+        update: { isActive: true },
+        create: { storeId: defaultStore.id, userId: u.id, isActive: true },
+      });
+    }
   }
 
   await prisma.$disconnect();

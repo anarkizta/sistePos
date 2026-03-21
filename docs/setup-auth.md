@@ -53,6 +53,13 @@ Tras actualizar el seed se crean **cliente_consultar** y **cliente_gestionar** (
 npx prisma db seed
 ```
 
+### Turnos y caja (Paso 7)
+
+- Permisos: **turno_abrir**, **turno_cerrar** (cajero), **turno_arqueo** (supervisor).
+- APIs: `GET /api/tiendas`, `GET /api/turnos/actual?storeId=&terminalId=`, `GET|POST /api/turnos`, `PATCH /api/turnos/[id]/cerrar`.
+- El seed crea sucursal **PRINCIPAL** y caja **CAJA01** y enlaza el usuario admin seed a esa sucursal (`store_user`).
+- Los cajeros deben tener fila activa en `store_user` para esa sucursal (o rol supervisor/administrador).
+
 ### Auditoria (operaciones)
 
 Las altas, ediciones y bajas de **productos** y **clientes** registran filas en `audit_event` y cambios en `audit_event_field`. El inicio de sesion exitoso registra `sesion_iniciar`.
