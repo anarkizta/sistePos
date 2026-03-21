@@ -130,6 +130,23 @@ export async function POST(request: Request) {
       },
     });
 
+    {
+      const now = new Date();
+      await prisma.authSession.updateMany({
+        where: {
+          id: session.sessionId,
+          userId: session.userId,
+          endedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: {
+          storeId,
+          terminalId,
+          shiftId: shift.id,
+        },
+      });
+    }
+
     await createAuditEvent({
       actorUserId: session.userId,
       shiftId: shift.id,

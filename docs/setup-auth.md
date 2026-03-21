@@ -53,6 +53,13 @@ Tras actualizar el seed se crean **cliente_consultar** y **cliente_gestionar** (
 npx prisma db seed
 ```
 
+### Sesion enlazada a sucursal/caja/turno (Paso 8)
+
+- `auth_session` incluye `shiftId` opcional: se asigna al iniciar sesion si envias **storeId** y **terminalId** y tienes un turno **OPEN** en esa caja, o al **abrir turno**, o con **PATCH /api/auth/context**.
+- **POST /api/auth/logout**: cierra la sesion en BD, borra la cookie y audita `sesion_cerrar`.
+- **PATCH /api/auth/context** `{ storeId, terminalId }`: actualiza la sesion y recalcula `shiftId`.
+- La pagina **Turnos** guarda la ultima sucursal/caja en `localStorage` y sincroniza el contexto; el **login** puede reutilizar esos valores.
+
 ### Turnos y caja (Paso 7)
 
 - Permisos: **turno_abrir**, **turno_cerrar** (cajero), **turno_arqueo** (supervisor).

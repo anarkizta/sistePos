@@ -218,6 +218,8 @@ model AuthSession {
   userId     Int
   storeId    Int?
   terminalId Int?
+  /// Turno de caja vinculado a esta sesion (si aplica)
+  shiftId    Int?
 
   startedAt DateTime @default(now())
   expiresAt DateTime
@@ -227,10 +229,12 @@ model AuthSession {
   user     User      @relation(fields: [userId], references: [id], onDelete: Restrict)
   store    Store?    @relation(fields: [storeId], references: [id], onDelete: Restrict)
   terminal Terminal? @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  shift    Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   @@index([userId, startedAt], map: "AuthSession_userId_startedAt_idx")
   @@index([expiresAt], map: "AuthSession_expiresAt_idx")
   @@index([terminalId], map: "AuthSession_terminalId_idx")
+  @@index([shiftId], map: "AuthSession_shiftId_idx")
   @@map("auth_session")
 }
 
@@ -273,6 +277,7 @@ model Shift {
 
   auditEvents     AuditEvent[]
   authorizations  ActionAuthorization[]
+  authSessions    AuthSession[]
 
   @@index([storeId, openedAt], map: "Shift_storeId_openedAt_idx")
   @@index([userId, openedAt], map: "Shift_userId_openedAt_idx")

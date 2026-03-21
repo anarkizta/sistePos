@@ -96,6 +96,20 @@ export default function TurnosPage() {
     refreshList();
   }, [refreshList]);
 
+  useEffect(() => {
+    if (!storeId || !terminalId) return;
+    localStorage.setItem("sp_context_store", String(storeId));
+    localStorage.setItem("sp_context_terminal", String(terminalId));
+    const t = setTimeout(() => {
+      fetch("/api/auth/context", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId, terminalId }),
+      }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [storeId, terminalId]);
+
   const abrirTurno = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);

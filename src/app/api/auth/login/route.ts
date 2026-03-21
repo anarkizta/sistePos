@@ -11,6 +11,8 @@ import {
 } from "@/lib/login-lockout";
 import { createAuditEvent } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { AuthError } from "@/lib/auth";
+import { assertStoreAccess, assertTerminalBelongsToStore } from "@/lib/store-access";
 
 const MAX_SESSION_HOURS = 10;
 
@@ -186,6 +188,53 @@ export async function POST(request: Request) {
 
     const expiresAt = addHours(now, MAX_SESSION_HOURS);
 
+    let sessionStoreId: number | null = null;
+    let sessionTerminalId: number | null = null;
+    let sessionShiftId: number | null = null;
+
+    const rawStore = body?.storeId;
+    const rawTerm = body?.terminalId;
+    const hasStore =
+      rawStore !== undefined && rawStore !== null && String(rawStore).trim() !== "" && Number.isFinite(Number(rawStore));
+    const hasTerm =
+      rawTerm !== undefined && rawTerm !== null && String(rawTerm).trim() !== "" && Number.isFinite(Number(rawTerm));
+
+    if (hasStore !== hasTerm) {
+      return NextResponse.json(
+        {
+          error: "Debes enviar storeId y terminalId juntos, o ninguno.",
+          code: "BAD_CONTEXT",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (hasStore && hasTerm) {
+      const sid = Number(rawStore);
+      const tid = Number(rawTerm);
+      try {
+        await assertStoreAccess(user.id, sid);
+        await assertTerminalBelongsToStore(tid, sid);
+      } catch (e) {
+        if (e instanceof AuthError) {
+          return NextResponse.json(
+            { error: e.message, code: "STORE_ACCESS" },
+            { status: e.status },
+          );
+        }
+        throw e;
+      }
+
+      const openShift = await prisma.shift.findFirst({
+        where: { terminalId: tid, status: "OPEN", userId: user.id },
+        select: { id: true },
+      });
+
+      sessionStoreId = sid;
+      sessionTerminalId = tid;
+      sessionShiftId = openShift?.id ?? null;
+    }
+
     const session = await prisma.$transaction(async (tx) => {
       await tx.authSession.updateMany({
         where: {
@@ -202,8 +251,9 @@ export async function POST(request: Request) {
       const created = await tx.authSession.create({
         data: {
           userId: user.id,
-          storeId: body?.storeId ?? null,
-          terminalId: body?.terminalId ?? null,
+          storeId: sessionStoreId,
+          terminalId: sessionTerminalId,
+          shiftId: sessionShiftId,
           startedAt: now,
           expiresAt,
         },
@@ -238,6 +288,7 @@ export async function POST(request: Request) {
         sessionId: session.id,
         storeId: session.storeId,
         terminalId: session.terminalId,
+        shiftId: session.shiftId,
         expiresAt: session.expiresAt.toISOString(),
       } as Prisma.InputJsonValue,
     });
@@ -259,6 +310,7 @@ export async function POST(request: Request) {
         expiresAt: session.expiresAt,
         storeId: session.storeId,
         terminalId: session.terminalId,
+        shiftId: session.shiftId,
       },
       user: {
         id: user.id,

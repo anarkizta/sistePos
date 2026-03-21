@@ -86,6 +86,11 @@ export async function PATCH(request: Request, { params }: Params) {
       },
     });
 
+    await prisma.authSession.updateMany({
+      where: { shiftId },
+      data: { shiftId: null },
+    });
+
     await createAuditEvent({
       actorUserId: session.userId,
       shiftId: updated.id,

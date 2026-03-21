@@ -75,10 +75,23 @@ export default function LoginPage() {
 
     setSubmitting(true);
     try {
+      const lsStore = typeof window !== "undefined" ? localStorage.getItem("sp_context_store") : null;
+      const lsTerm = typeof window !== "undefined" ? localStorage.getItem("sp_context_terminal") : null;
+      const payloadBody: Record<string, unknown> = { username: u, credential };
+      if (
+        lsStore &&
+        lsTerm &&
+        Number.isFinite(Number(lsStore)) &&
+        Number.isFinite(Number(lsTerm))
+      ) {
+        payloadBody.storeId = Number(lsStore);
+        payloadBody.terminalId = Number(lsTerm);
+      }
+
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, credential }),
+        body: JSON.stringify(payloadBody),
       });
 
       const payload = await res.json().catch(() => ({}));

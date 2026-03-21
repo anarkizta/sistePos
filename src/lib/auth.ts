@@ -6,6 +6,9 @@ export type SessionContext = {
   username: string;
   displayName: string;
   expiresAt: Date;
+  storeId: number | null;
+  terminalId: number | null;
+  shiftId: number | null;
 };
 
 export class AuthError extends Error {
@@ -30,6 +33,9 @@ export async function getSessionContextById(sessionId: number): Promise<SessionC
     select: {
       id: true,
       expiresAt: true,
+      storeId: true,
+      terminalId: true,
+      shiftId: true,
       user: { select: { id: true, username: true, displayName: true } },
     },
   });
@@ -44,6 +50,9 @@ export async function getSessionContextById(sessionId: number): Promise<SessionC
     username: session.user.username,
     displayName: session.user.displayName,
     expiresAt: session.expiresAt,
+    storeId: session.storeId,
+    terminalId: session.terminalId,
+    shiftId: session.shiftId,
   };
 }
 

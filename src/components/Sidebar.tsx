@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Home, Package, Users, ShoppingCart, Clock, LogOut } from "lucide-react";
+import { Home, Package, Users, ShoppingCart, Clock } from "lucide-react";
+import LogoutButton from "@/components/LogoutButton";
 
 export default function Sidebar() {
   const menuItems = [
@@ -33,10 +34,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-slate-800">
-        <button className="flex items-center gap-3 px-4 py-3 w-full rounded-lg hover:bg-red-900/40 hover:text-red-400 text-slate-400 transition-all group">
-          <LogOut className="w-5 h-5 group-hover:text-red-400 transition-colors" />
-          <span className="font-medium">Cerrar Sesión</span>
-        </button>
+        <LogoutButton />
       </div>
     </aside>
   );
