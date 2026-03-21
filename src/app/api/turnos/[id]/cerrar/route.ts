@@ -9,6 +9,8 @@ import {
   getSessionContextById,
 } from "@/lib/auth";
 import { createAuditEvent } from "@/lib/audit";
+import { assertStoreAccess } from "@/lib/store-access";
+import { computeShiftArqueoTotals } from "@/lib/shift-arqueo";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -68,9 +70,13 @@ export async function PATCH(request: Request, { params }: Params) {
       );
     }
 
+    await assertStoreAccess(session.userId, shift.storeId);
+
     const now = new Date();
-    const opening = Number(shift.openingCashAmount);
-    const difference = closingCashAmount - opening;
+    const arqueo = await computeShiftArqueoTotals(shiftId);
+    const expectedCashInDrawer = arqueo.expectedCashInDrawer;
+    /** Contado en caja vs efectivo esperado (apertura + ventas en efectivo). */
+    const difference = closingCashAmount - expectedCashInDrawer;
 
     const updated = await prisma.shift.update({
       where: { id: shiftId },
@@ -97,14 +103,17 @@ export async function PATCH(request: Request, { params }: Params) {
       action: "turno_cerrar",
       entityType: "shift",
       entityId: updated.id,
-      message: `Cierre turno id=${updated.id} diferencia_efectivo=${difference.toFixed(2)}`,
+      message: `Cierre turno id=${updated.id} diferencia_arqueo=${difference.toFixed(2)}`,
       dataJson: {
         shiftOwnerUserId: shift.userId,
         closedByUserId: session.userId,
         supervisorClose: !isOwner,
         openingCashAmount: String(shift.openingCashAmount),
+        salesCash: String(arqueo.salesCash),
+        salesCard: String(arqueo.salesCard),
+        expectedCashInDrawer: String(expectedCashInDrawer),
         closingCashAmount: String(closingCashAmount),
-        difference: String(difference),
+        differenceArqueo: String(difference),
       } as Prisma.InputJsonValue,
       fields: [
         {
@@ -123,7 +132,11 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({
       shift: updated,
       report: {
-        openingCashAmount: opening,
+        openingCashAmount: arqueo.openingCash,
+        salesCash: arqueo.salesCash,
+        salesCard: arqueo.salesCard,
+        salesTotal: arqueo.salesTotal,
+        expectedCashInDrawer,
         closingCashAmount,
         difference,
         closedAt: updated.closedAt?.toISOString() ?? null,

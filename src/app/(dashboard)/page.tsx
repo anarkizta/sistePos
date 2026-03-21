@@ -140,15 +140,32 @@ export default function Home() {
       confirmButtonColor: '#2563eb',
       cancelButtonColor: '#64748b',
       confirmButtonText: 'Sí, cobrar'
-    }).then((result) => {
-      if (result.isConfirmed) {
+    }).then(async (result) => {
+      if (!result.isConfirmed) return;
+      const paymentMethod = metodo.toLowerCase().includes("efect") ? "EFECTIVO" : "TARJETA";
+      try {
+        const res = await fetch("/api/ventas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ totalAmount: total, paymentMethod }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(typeof payload.error === "string" ? payload.error : "Error al registrar venta");
+        }
         setCart([]);
         Swal.fire({
-          title: '¡Pagado!',
-          text: 'Venta registrada con éxito.',
-          icon: 'success',
+          title: "¡Pagado!",
+          text: "Venta registrada con éxito.",
+          icon: "success",
           timer: 2000,
-          showConfirmButton: false
+          showConfirmButton: false,
+        });
+      } catch (err) {
+        Swal.fire({
+          title: "No se pudo registrar",
+          text: err instanceof Error ? err.message : "Error de red o servidor",
+          icon: "error",
         });
       }
     });

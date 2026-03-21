@@ -12,6 +12,16 @@ import {
 type Terminal = { id: number; code: string; name: string; storeId: number };
 type StoreRow = { id: number; code: string; name: string; terminals: Terminal[] };
 
+type ArqueoRes = {
+  shiftId: number;
+  status: string;
+  openingCash: number;
+  salesCash: number;
+  salesCard: number;
+  salesTotal: number;
+  expectedCashInDrawer: number;
+};
+
 type ShiftDetail = {
   id: number;
   storeId: number;
@@ -38,7 +48,9 @@ export default function TurnosPage() {
   const [current, setCurrent] = useState<ShiftDetail | null>(null);
   const [list, setList] = useState<ShiftDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [arqueo, setArqueo] = useState<ArqueoRes | null>(null);
 
   const terminals = useMemo(() => {
     const s = stores.find((x) => x.id === storeId);
@@ -109,6 +121,32 @@ export default function TurnosPage() {
   }, [refreshList]);
 
   useEffect(() => {
+    if (!current?.id) {
+      setArqueo(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(`/api/turnos/${current.id}/arqueo`);
+        const data = await r.json();
+        if (cancelled) return;
+        if (r.ok) setArqueo(data as ArqueoRes);
+        else setArqueo(null);
+      } catch {
+        if (!cancelled) setArqueo(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [current?.id]);
+
+  const closingCounted = Number(closingCash.replace(",", ".")) || 0;
+  const diferenciaPreview =
+    arqueo != null ? closingCounted - arqueo.expectedCashInDrawer : null;
+
+  useEffect(() => {
     if (!storeId || !terminalId) return;
     localStorage.setItem("sp_context_store", String(storeId));
     localStorage.setItem("sp_context_terminal", String(terminalId));
@@ -172,6 +210,25 @@ export default function TurnosPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "No se pudo cerrar el turno");
       setClosingCash("0");
+      setArqueo(null);
+      const rep = data.report as
+        | {
+            difference: number;
+            expectedCashInDrawer: number;
+            salesCash: number;
+          }
+        | undefined;
+      if (rep && typeof rep.difference === "number") {
+        const sign = rep.difference === 0 ? "" : rep.difference > 0 ? "sobra" : "falta";
+        const abs = Math.abs(rep.difference);
+        setSuccessMsg(
+          `Turno cerrado. Efectivo esperado en caja: $${Number(rep.expectedCashInDrawer).toLocaleString("es-CL")}. ` +
+            (rep.difference === 0
+              ? "Arqueo cuadrado."
+              : `Diferencia: ${sign} $${abs.toLocaleString("es-CL")} (contado vs esperado).`),
+        );
+        window.setTimeout(() => setSuccessMsg(null), 12000);
+      }
       refreshShift();
       refreshList();
     } catch (err) {
@@ -210,6 +267,11 @@ export default function TurnosPage() {
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl text-sm">
           {error}
+        </div>
+      )}
+      {successMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 rounded-xl text-sm">
+          {successMsg}
         </div>
       )}
 
@@ -321,7 +383,38 @@ export default function TurnosPage() {
                   </details>
                 );
               })()}
-              <form onSubmit={cerrarTurno} className="pt-2 space-y-2 border-t border-slate-100">
+              <form onSubmit={cerrarTurno} className="pt-2 space-y-3 border-t border-slate-100">
+                {arqueo && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3 space-y-2 text-xs text-slate-700">
+                    <p className="font-semibold text-slate-800 text-sm">Resumen para arqueo</p>
+                    <div className="flex justify-between gap-2">
+                      <span>Fondo de apertura</span>
+                      <span className="font-mono font-medium">
+                        ${arqueo.openingCash.toLocaleString("es-CL")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span>Ventas en efectivo (turno)</span>
+                      <span className="font-mono font-medium text-emerald-800">
+                        + ${arqueo.salesCash.toLocaleString("es-CL")}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2 text-slate-500">
+                      <span>Ventas tarjeta (referencia, no van en caja)</span>
+                      <span className="font-mono">${arqueo.salesCard.toLocaleString("es-CL")}</span>
+                    </div>
+                    <div className="flex justify-between gap-2 pt-2 border-t border-slate-200 font-semibold text-slate-900">
+                      <span>Efectivo esperado en caja</span>
+                      <span className="font-mono text-blue-700">
+                        ${arqueo.expectedCashInDrawer.toLocaleString("es-CL")}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 pt-1 leading-relaxed">
+                      Cuenta solo el efectivo físico y compáralo con el esperado. La diferencia debe
+                      reflejar faltantes o sobrantes reales frente a apertura + cobros en efectivo.
+                    </p>
+                  </div>
+                )}
                 <label className="block text-sm font-medium text-slate-700">
                   Efectivo contado al cierre
                 </label>
@@ -333,6 +426,24 @@ export default function TurnosPage() {
                   onChange={(e) => setClosingCash(e.target.value)}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2"
                 />
+                {diferenciaPreview !== null && (
+                  <p
+                    className={`text-sm font-medium ${
+                      diferenciaPreview === 0
+                        ? "text-emerald-700"
+                        : diferenciaPreview > 0
+                          ? "text-amber-700"
+                          : "text-red-700"
+                    }`}
+                  >
+                    Diferencia (contado − esperado):{" "}
+                    {diferenciaPreview === 0
+                      ? "$0 — cuadrado"
+                      : diferenciaPreview > 0
+                        ? `+$${diferenciaPreview.toLocaleString("es-CL")} (sobra en caja)`
+                        : `−$${Math.abs(diferenciaPreview).toLocaleString("es-CL")} (falta en caja)`}
+                  </p>
+                )}
                 <button
                   type="submit"
                   disabled={busy}

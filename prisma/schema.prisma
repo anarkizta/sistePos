@@ -28,6 +28,11 @@ enum ShiftStatus {
   CLOSED
 }
 
+enum PaymentMethod {
+  EFECTIVO
+  TARJETA
+}
+
 enum AuthorizationStatus {
   PENDING
   APPROVED
@@ -125,6 +130,7 @@ model User {
 
   storeUsers StoreUser[]
   shifts     Shift[]
+  sales      Sale[]
 
   auditEvents            AuditEvent[] @relation("audit_actor")
   auditEventsImpersonate AuditEvent[] @relation("audit_impersonator")
@@ -280,11 +286,28 @@ model Shift {
   auditEvents     AuditEvent[]
   authorizations  ActionAuthorization[]
   authSessions    AuthSession[]
+  sales           Sale[]
 
   @@index([storeId, openedAt], map: "Shift_storeId_openedAt_idx")
   @@index([userId, openedAt], map: "Shift_userId_openedAt_idx")
   @@index([terminalId, openedAt], map: "Shift_terminalId_openedAt_idx")
   @@map("shift")
+}
+
+model Sale {
+  id            Int           @id @default(autoincrement())
+  shiftId       Int
+  userId        Int?
+  totalAmount   Decimal       @db.Decimal(12, 2)
+  paymentMethod PaymentMethod
+  createdAt     DateTime      @default(now())
+
+  shift Shift @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([shiftId], map: "Sale_shiftId_idx")
+  @@index([shiftId, createdAt], map: "Sale_shiftId_createdAt_idx")
+  @@map("sale")
 }
 
 model ActionAuthorization {
