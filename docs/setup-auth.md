@@ -45,3 +45,9 @@ npx prisma migrate dev
 npx prisma db seed
 ```
 
+### Bloqueo por intentos fallidos
+
+- **Ventana**: 10 minutos, maximo **5** intentos fallidos por alias (`username`).
+- **Bloqueo en cuenta**: si el usuario existe en BD, al llegar a 5 fallos en la ventana se guarda `user.lockedUntil` (**15 minutos** desde ese momento). Un login correcto **limpia** `lockedUntil`.
+- **Consulta de estado** (sin cookie): `GET /api/auth/login-status?username=TU_ALIAS` devuelve si esta bloqueado, intentos en ventana y fechas aproximadas de desbloqueo.
+

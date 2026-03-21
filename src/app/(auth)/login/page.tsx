@@ -21,6 +21,7 @@ export default function LoginPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lockHint, setLockHint] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("sp_login_username");
@@ -38,6 +39,24 @@ export default function LoginPage() {
       .catch(() => setUsers([]))
       .finally(() => setLoadingUsers(false));
   }, []);
+
+  useEffect(() => {
+    const u = username.trim();
+    if (!u) {
+      setLockHint(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      fetch(`/api/auth/login-status?username=${encodeURIComponent(u)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.locked && data?.message) setLockHint(String(data.message));
+          else setLockHint(null);
+        })
+        .catch(() => setLockHint(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [username]);
 
   const selectedUser = useMemo(
     () => users.find((u) => u.username === username) ?? null,
@@ -64,7 +83,23 @@ export default function LoginPage() {
 
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(payload?.error ?? "No se pudo iniciar sesión.");
+        let msg = payload?.error ?? "No se pudo iniciar sesión.";
+        if (
+          res.status === 401 &&
+          typeof payload?.attemptsRemaining === "number" &&
+          payload.attemptsRemaining >= 0
+        ) {
+          msg += ` Intentos restantes en esta ventana: ${payload.attemptsRemaining}.`;
+        }
+        setError(msg);
+        if (u) {
+          fetch(`/api/auth/login-status?username=${encodeURIComponent(u)}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (data?.locked && data?.message) setLockHint(String(data.message));
+            })
+            .catch(() => {});
+        }
         return;
       }
 
@@ -170,6 +205,12 @@ export default function LoginPage() {
                 Recordar usuario
               </label>
             </div>
+
+            {lockHint && !error && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                {lockHint}
+              </div>
+            )}
 
             {error && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">

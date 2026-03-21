@@ -2,24 +2,36 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { cookies } from "next/headers";
+import {
+  getLoginLockState,
+  applyAccountLockAfterFailures,
+  LOCK_MAX_FAILED_ATTEMPTS,
+  LOCK_WINDOW_MINUTES,
+  LOCK_BAN_MINUTES,
+} from "@/lib/login-lockout";
 
 const MAX_SESSION_HOURS = 10;
-const LOCK_WINDOW_MINUTES = 10;
-const LOCK_MAX_FAILED_ATTEMPTS = 5;
 
 function addHours(date: Date, hours: number) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
 }
 
-function subtractMinutes(date: Date, minutes: number) {
-  return new Date(date.getTime() - minutes * 60 * 1000);
+function buildLockPayload(state: Awaited<ReturnType<typeof getLoginLockState>>) {
+  return {
+    locked: true,
+    accountUnlockAt: state.accountUnlockAt,
+    rateLimitUnlockAt: state.rateLimitUnlockAt,
+    failedInWindow: state.failedInWindow,
+    maxAttempts: state.maxAttempts,
+    windowMinutes: state.windowMinutes,
+  };
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       username?: string;
-      credential?: string; // pin o password
+      credential?: string;
       storeId?: number | null;
       terminalId?: number | null;
       ip?: string | null;
@@ -30,25 +42,31 @@ export async function POST(request: Request) {
 
     if (!username || !credential) {
       return NextResponse.json(
-        { error: "username y credential son obligatorios" },
+        {
+          error: "Debes indicar el usuario y el PIN o clave.",
+          code: "MISSING_FIELDS",
+        },
         { status: 400 },
       );
     }
 
-    const lockWindowStart = subtractMinutes(new Date(), LOCK_WINDOW_MINUTES);
-
-    const failedAttempts = await prisma.loginAttempt.count({
-      where: {
-        username,
-        success: false,
-        createdAt: { gte: lockWindowStart },
-      },
-    });
-
-    if (failedAttempts >= LOCK_MAX_FAILED_ATTEMPTS) {
+    const preState = await getLoginLockState(username);
+    if (preState.accountLocked) {
       return NextResponse.json(
         {
-          error: `Usuario temporalmente bloqueado por demasiados intentos. Intenta de nuevo en ${LOCK_WINDOW_MINUTES} minutos.`,
+          error: `Cuenta bloqueada por seguridad tras varios intentos fallidos. Vuelve a intentar despues de las ${preState.accountUnlockAt ? new Date(preState.accountUnlockAt).toLocaleString("es-CL") : "indicadas"}. Si persiste, contacta al administrador.`,
+          code: "ACCOUNT_LOCKED",
+          ...buildLockPayload(preState),
+        },
+        { status: 429 },
+      );
+    }
+    if (preState.failedInWindow >= LOCK_MAX_FAILED_ATTEMPTS) {
+      return NextResponse.json(
+        {
+          error: `Demasiados intentos fallidos en los ultimos ${LOCK_WINDOW_MINUTES} minutos. Espera unos minutos o usa otro equipo si fue un error. Limite: ${LOCK_MAX_FAILED_ATTEMPTS} intentos.`,
+          code: "RATE_LIMITED",
+          ...buildLockPayload(preState),
         },
         { status: 429 },
       );
@@ -64,8 +82,21 @@ export async function POST(request: Request) {
         pinHash: true,
         passwordHash: true,
         isActive: true,
+        lockedUntil: true,
       },
     });
+
+    const now = new Date();
+    if (user?.lockedUntil && user.lockedUntil.getTime() > now.getTime()) {
+      return NextResponse.json(
+        {
+          error: `Cuenta bloqueada temporalmente. Intenta de nuevo despues de ${user.lockedUntil.toLocaleString("es-CL")}.`,
+          code: "ACCOUNT_LOCKED",
+          accountUnlockAt: user.lockedUntil.toISOString(),
+        },
+        { status: 429 },
+      );
+    }
 
     if (!user || !user.isActive) {
       await prisma.loginAttempt.create({
@@ -79,7 +110,17 @@ export async function POST(request: Request) {
         },
       });
 
-      return NextResponse.json({ error: "Credenciales invalidas" }, { status: 401 });
+      const after = await getLoginLockState(username);
+      return NextResponse.json(
+        {
+          error: "Usuario o PIN/clave incorrectos.",
+          code: "INVALID_CREDENTIALS",
+          attemptsRemaining: after.attemptsRemaining,
+          failedInWindow: after.failedInWindow,
+          maxAttempts: LOCK_MAX_FAILED_ATTEMPTS,
+        },
+        { status: 401 },
+      );
     }
 
     const hash = user.credentialType === "PIN" ? user.pinHash : user.passwordHash;
@@ -94,8 +135,17 @@ export async function POST(request: Request) {
           terminalId: body?.terminalId ?? null,
         },
       });
+      await applyAccountLockAfterFailures(user.id, username);
 
-      return NextResponse.json({ error: "Credenciales invalidas" }, { status: 401 });
+      const after = await getLoginLockState(username);
+      return NextResponse.json(
+        {
+          error: "Este usuario no tiene credencial configurada. Contacta al administrador.",
+          code: "CREDENTIAL_NOT_SET",
+          attemptsRemaining: after.attemptsRemaining,
+        },
+        { status: 401 },
+      );
     }
 
     const ok = await bcrypt.compare(credential, hash);
@@ -111,15 +161,30 @@ export async function POST(request: Request) {
           terminalId: body?.terminalId ?? null,
         },
       });
+      await applyAccountLockAfterFailures(user.id, username);
 
-      return NextResponse.json({ error: "Credenciales invalidas" }, { status: 401 });
+      const after = await getLoginLockState(username);
+      const nearLimit = after.failedInWindow >= LOCK_MAX_FAILED_ATTEMPTS - 1;
+
+      return NextResponse.json(
+        {
+          error: nearLimit
+            ? `PIN o clave incorrectos. Te queda ${after.attemptsRemaining} intento antes de un bloqueo de ${LOCK_BAN_MINUTES} minutos en esta cuenta.`
+            : "PIN o clave incorrectos.",
+          code: "INVALID_CREDENTIALS",
+          attemptsRemaining: after.attemptsRemaining,
+          failedInWindow: after.failedInWindow,
+          maxAttempts: LOCK_MAX_FAILED_ATTEMPTS,
+          accountLocked: after.accountLocked,
+          accountUnlockAt: after.accountUnlockAt,
+        },
+        { status: 401 },
+      );
     }
 
-    const now = new Date();
     const expiresAt = addHours(now, MAX_SESSION_HOURS);
 
     const session = await prisma.$transaction(async (tx) => {
-      // Cerrar cualquier sesion activa previa del usuario (una sola sesion activa)
       await tx.authSession.updateMany({
         where: {
           userId: user.id,
@@ -155,7 +220,7 @@ export async function POST(request: Request) {
 
       await tx.user.update({
         where: { id: user.id },
-        data: { lastLoginAt: now },
+        data: { lastLoginAt: now, lockedUntil: null },
       });
 
       return created;
@@ -188,7 +253,6 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Error en POST /api/auth/login:", error);
     const message = error instanceof Error ? error.message : "Error en login";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, code: "SERVER_ERROR" }, { status: 500 });
   }
 }
-
