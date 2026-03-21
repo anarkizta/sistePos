@@ -45,6 +45,18 @@ npx prisma migrate dev
 npx prisma db seed
 ```
 
+### Permisos de clientes
+
+Tras actualizar el seed se crean **cliente_consultar** y **cliente_gestionar** (cajero, supervisor y administrador los tienen por defecto). Si ya tenias la base cargada, ejecuta de nuevo:
+
+```bash
+npx prisma db seed
+```
+
+### Auditoria (operaciones)
+
+Las altas, ediciones y bajas de **productos** y **clientes** registran filas en `audit_event` y cambios en `audit_event_field`. El inicio de sesion exitoso registra `sesion_iniciar`.
+
 ### Bloqueo por intentos fallidos
 
 - **Ventana**: 10 minutos, maximo **5** intentos fallidos por alias (`username`).

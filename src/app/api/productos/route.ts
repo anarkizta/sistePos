@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
 import { AuthError, assertHasPermission, getSessionContextById } from "@/lib/auth";
+import { auditValue, createAuditEvent } from "@/lib/audit";
 
 // GET /api/productos → Listar todos los productos
 export async function GET() {
@@ -55,6 +56,27 @@ export async function POST(request: Request) {
         price: parseFloat(data.price),
         stock: parseInt(data.stock ?? "0"),
       },
+    });
+
+    await createAuditEvent({
+      actorUserId: session.userId,
+      action: "producto_crear",
+      entityType: "product",
+      entityId: product.id,
+      message: `Alta de producto id=${product.id}`,
+      dataJson: {
+        name: product.name,
+        barcode: product.barcode,
+        price: auditValue(product.price),
+        stock: product.stock,
+      },
+      fields: [
+        { fieldPath: "product.name", oldValue: null, newValue: auditValue(product.name) },
+        { fieldPath: "product.barcode", oldValue: null, newValue: auditValue(product.barcode) },
+        { fieldPath: "product.description", oldValue: null, newValue: auditValue(product.description) },
+        { fieldPath: "product.price", oldValue: null, newValue: auditValue(product.price) },
+        { fieldPath: "product.stock", oldValue: null, newValue: auditValue(product.stock) },
+      ],
     });
 
     return NextResponse.json(product, { status: 201 });

@@ -9,6 +9,8 @@ import {
   LOCK_WINDOW_MINUTES,
   LOCK_BAN_MINUTES,
 } from "@/lib/login-lockout";
+import { createAuditEvent } from "@/lib/audit";
+import { Prisma } from "@prisma/client";
 
 const MAX_SESSION_HOURS = 10;
 
@@ -224,6 +226,20 @@ export async function POST(request: Request) {
       });
 
       return created;
+    });
+
+    await createAuditEvent({
+      actorUserId: user.id,
+      action: "sesion_iniciar",
+      entityType: "auth_session",
+      entityId: session.id,
+      message: `Inicio de sesion: ${user.username}`,
+      dataJson: {
+        sessionId: session.id,
+        storeId: session.storeId,
+        terminalId: session.terminalId,
+        expiresAt: session.expiresAt.toISOString(),
+      } as Prisma.InputJsonValue,
     });
 
     const cookieStore = await cookies();

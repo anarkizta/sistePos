@@ -1,21 +1,42 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { cookies } from "next/headers";
+import { AuthError, assertHasPermission, getSessionContextById } from "@/lib/auth";
+import { auditValue, createAuditEvent } from "@/lib/audit";
 
 export async function GET() {
   try {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get("sp_session_id")?.value ?? "";
+    const sessionId = Number(raw);
+    const session = await getSessionContextById(sessionId);
+    await assertHasPermission(session.userId, "cliente_consultar");
+
     const customers = await prisma.customer.findMany({
-      orderBy: { id: 'desc' }
+      orderBy: { id: "desc" },
     });
     return NextResponse.json(customers);
   } catch (error) {
     console.error("Error en GET /api/clientes:", error);
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { error: error.message, requiredPermission: error.requiredPermission ?? null },
+        { status: error.status },
+      );
+    }
     return NextResponse.json({ error: "Error al obtener clientes" }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    const cookieStore = await cookies();
+    const raw = cookieStore.get("sp_session_id")?.value ?? "";
+    const sessionId = Number(raw);
+    const session = await getSessionContextById(sessionId);
+    await assertHasPermission(session.userId, "cliente_gestionar");
+
     const data = await request.json();
     if (!data?.name || !String(data.name).trim()) {
       return NextResponse.json({ error: "El nombre es obligatorio" }, { status: 400 });
@@ -30,16 +51,45 @@ export async function POST(request: Request) {
           data.credit !== undefined && data.credit !== null && String(data.credit).trim() !== ""
             ? parseFloat(String(data.credit))
             : 0,
-      }
+      },
     });
+
+    await createAuditEvent({
+      actorUserId: session.userId,
+      action: "cliente_crear",
+      entityType: "customer",
+      entityId: customer.id,
+      message: `Alta cliente id=${customer.id}`,
+      dataJson: {
+        name: customer.name,
+        rut: customer.rut,
+        email: customer.email,
+        phone: customer.phone,
+        credit: auditValue(customer.credit),
+      } as Prisma.InputJsonValue,
+      fields: [
+        { fieldPath: "customer.name", oldValue: null, newValue: auditValue(customer.name) },
+        { fieldPath: "customer.rut", oldValue: null, newValue: auditValue(customer.rut) },
+        { fieldPath: "customer.email", oldValue: null, newValue: auditValue(customer.email) },
+        { fieldPath: "customer.phone", oldValue: null, newValue: auditValue(customer.phone) },
+        { fieldPath: "customer.credit", oldValue: null, newValue: auditValue(customer.credit) },
+      ],
+    });
+
     return NextResponse.json(customer, { status: 201 });
   } catch (error) {
     console.error("Error en POST /api/clientes:", error);
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { error: error.message, requiredPermission: error.requiredPermission ?? null },
+        { status: error.status },
+      );
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === "P2002") {
         return NextResponse.json(
           { error: "Ya existe un cliente con ese RUT" },
-          { status: 409 }
+          { status: 409 },
         );
       }
     }

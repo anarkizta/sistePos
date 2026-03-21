@@ -8,6 +8,7 @@ import {
   assertHasPermissionOrAuthorization,
   getSessionContextById,
 } from "@/lib/auth";
+import { auditValue, createAuditEvent, diffFields } from "@/lib/audit";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -54,8 +55,14 @@ export async function PUT(req: Request, { params }: Params) {
     );
 
     const data = await req.json();
+    const pid = Number(id);
+    const before = await prisma.product.findUnique({ where: { id: pid } });
+    if (!before) {
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
+
     const product = await prisma.product.update({
-      where: { id: Number(id) },
+      where: { id: pid },
       data: {
         name: data.name,
         barcode: data.barcode || null,
@@ -64,6 +71,48 @@ export async function PUT(req: Request, { params }: Params) {
         stock: parseInt(data.stock),
       },
     });
+
+    const beforeRec: Record<string, unknown> = {
+      name: before.name,
+      barcode: before.barcode,
+      description: before.description,
+      price: before.price,
+      stock: before.stock,
+    };
+    const afterRec: Record<string, unknown> = {
+      name: product.name,
+      barcode: product.barcode,
+      description: product.description,
+      price: product.price,
+      stock: product.stock,
+    };
+    const fields = diffFields("product", ["name", "barcode", "description", "price", "stock"], beforeRec, afterRec);
+
+    await createAuditEvent({
+      actorUserId: session.userId,
+      action: "producto_editar",
+      entityType: "product",
+      entityId: product.id,
+      message: `Edicion producto id=${product.id}`,
+      dataJson: {
+        before: {
+          name: auditValue(before.name),
+          barcode: auditValue(before.barcode),
+          description: auditValue(before.description),
+          price: auditValue(before.price),
+          stock: auditValue(before.stock),
+        },
+        after: {
+          name: auditValue(product.name),
+          barcode: auditValue(product.barcode),
+          description: auditValue(product.description),
+          price: auditValue(product.price),
+          stock: auditValue(product.stock),
+        },
+      } as Prisma.InputJsonValue,
+      fields: fields.length > 0 ? fields : undefined,
+    });
+
     return NextResponse.json(product);
   } catch (error) {
     console.error(`Error en PUT /api/productos/${id}:`, error);
@@ -104,9 +153,39 @@ export async function DELETE(_req: Request, { params }: Params) {
       "producto_borrar",
     );
 
+    const pid = Number(id);
+    const before = await prisma.product.findUnique({ where: { id: pid } });
+    if (!before) {
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+    }
+
     await prisma.product.delete({
-      where: { id: Number(id) },
+      where: { id: pid },
     });
+
+    await createAuditEvent({
+      actorUserId: session.userId,
+      action: "producto_eliminar",
+      entityType: "product",
+      entityId: pid,
+      message: `Eliminacion producto id=${pid} nombre=${before.name}`,
+      dataJson: {
+        deleted: {
+          name: before.name,
+          barcode: before.barcode,
+          description: before.description,
+          price: String(before.price),
+          stock: before.stock,
+        },
+      },
+      fields: [
+        { fieldPath: "product.name", oldValue: String(before.name), newValue: null },
+        { fieldPath: "product.barcode", oldValue: before.barcode ? String(before.barcode) : null, newValue: null },
+        { fieldPath: "product.price", oldValue: String(before.price), newValue: null },
+        { fieldPath: "product.stock", oldValue: String(before.stock), newValue: null },
+      ],
+    });
+
     return NextResponse.json({ message: "Producto eliminado correctamente" });
   } catch (error) {
     console.error(`Error en DELETE /api/productos/${id}:`, error);

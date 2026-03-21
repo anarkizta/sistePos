@@ -55,6 +55,8 @@ async function main() {
     { code: "usuario_editar", name: "Editar usuario" },
     { code: "usuario_borrar", name: "Borrar usuario" },
     { code: "rol_asignar", name: "Asignar roles" },
+    { code: "cliente_consultar", name: "Consultar clientes" },
+    { code: "cliente_gestionar", name: "Crear editar y eliminar clientes" },
   ];
 
   for (const perm of permissions) {
@@ -73,6 +75,8 @@ async function main() {
     "venta_cobrar",
     "inventario_consultar",
     "descuento_aplicar",
+    "cliente_consultar",
+    "cliente_gestionar",
   ];
 
   const supervisorPerms = [
