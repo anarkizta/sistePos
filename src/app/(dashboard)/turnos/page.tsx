@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Clock, RefreshCw, Store, MonitorSmartphone } from "lucide-react";
+import OpeningDenominationsFields from "@/components/OpeningDenominationsFields";
+import {
+  createEmptyOpeningQuantities,
+  sumOpeningDenominations,
+  OPENING_DENOMINATION_CONFIG,
+} from "@/lib/opening-denominations";
 
 type Terminal = { id: number; code: string; name: string; storeId: number };
 type StoreRow = { id: number; code: string; name: string; terminals: Terminal[] };
@@ -15,6 +21,7 @@ type ShiftDetail = {
   openedAt: string;
   closedAt: string | null;
   openingCashAmount: string;
+  openingDenominationsJson?: Record<string, number> | null;
   closingCashAmount: string | null;
   user: { displayName: string; username: string };
   terminal: { code: string; name: string };
@@ -26,7 +33,7 @@ export default function TurnosPage() {
   const [loadingStores, setLoadingStores] = useState(true);
   const [storeId, setStoreId] = useState<number | "">("");
   const [terminalId, setTerminalId] = useState<number | "">("");
-  const [openingCash, setOpeningCash] = useState("0");
+  const [openingQuantities, setOpeningQuantities] = useState(createEmptyOpeningQuantities);
   const [closingCash, setClosingCash] = useState("0");
   const [current, setCurrent] = useState<ShiftDetail | null>(null);
   const [list, setList] = useState<ShiftDetail[]>([]);
@@ -37,6 +44,11 @@ export default function TurnosPage() {
     const s = stores.find((x) => x.id === storeId);
     return s?.terminals ?? [];
   }, [stores, storeId]);
+
+  const openingTotal = useMemo(
+    () => sumOpeningDenominations(openingQuantities),
+    [openingQuantities],
+  );
 
   const loadStores = useCallback(() => {
     setLoadingStores(true);
@@ -117,6 +129,10 @@ export default function TurnosPage() {
       setError("Selecciona sucursal y caja.");
       return;
     }
+    if (openingTotal <= 0) {
+      setError("Ingresa al menos una denominacion para que el fondo sea mayor a $0.");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/turnos", {
@@ -125,12 +141,12 @@ export default function TurnosPage() {
         body: JSON.stringify({
           storeId,
           terminalId,
-          openingCashAmount: Number(openingCash.replace(",", ".")) || 0,
+          openingDenominations: openingQuantities,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "No se pudo abrir el turno");
-      setOpeningCash("0");
+      setOpeningQuantities(createEmptyOpeningQuantities());
       refreshShift();
       refreshList();
     } catch (err) {
@@ -278,6 +294,33 @@ export default function TurnosPage() {
                 <span className="text-slate-500">Fondo inicial:</span> $
                 {Number(current.openingCashAmount).toLocaleString("es-CL")}
               </p>
+              {(() => {
+                const j = current.openingDenominationsJson;
+                if (!j || typeof j !== "object") return null;
+                const rows = OPENING_DENOMINATION_CONFIG.map(({ value, label }) => {
+                  const k = String(value);
+                  const q = Math.floor(Number(j[k] ?? 0));
+                  if (!q || q < 0) return null;
+                  return (
+                    <li key={k} className="flex justify-between gap-4">
+                      <span>{label}</span>
+                      <span>
+                        {q} × ${value.toLocaleString("es-CL")} = $
+                        {(q * value).toLocaleString("es-CL")}
+                      </span>
+                    </li>
+                  );
+                }).filter(Boolean);
+                if (rows.length === 0) return null;
+                return (
+                  <details className="rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs">
+                    <summary className="cursor-pointer font-medium text-slate-700">
+                      Desglose por denominacion
+                    </summary>
+                    <ul className="mt-2 space-y-1 font-mono text-slate-600">{rows}</ul>
+                  </details>
+                );
+              })()}
               <form onSubmit={cerrarTurno} className="pt-2 space-y-2 border-t border-slate-100">
                 <label className="block text-sm font-medium text-slate-700">
                   Efectivo contado al cierre
@@ -304,24 +347,16 @@ export default function TurnosPage() {
               </form>
             </div>
           ) : (
-            <form onSubmit={abrirTurno} className="space-y-3">
+            <form onSubmit={abrirTurno} className="space-y-4">
               <p className="text-slate-500 text-sm">No hay turno abierto en esta caja.</p>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Fondo inicial en caja
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="1"
-                  value={openingCash}
-                  onChange={(e) => setOpeningCash(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
-                />
-              </div>
+              <OpeningDenominationsFields
+                quantities={openingQuantities}
+                onChange={setOpeningQuantities}
+                disabled={busy}
+              />
               <button
                 type="submit"
-                disabled={busy}
+                disabled={busy || openingTotal <= 0}
                 className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50"
               >
                 Abrir turno

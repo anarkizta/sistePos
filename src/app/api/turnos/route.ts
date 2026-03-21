@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { AuthError, assertHasPermission, getEffectivePermissionCodes, getSessionContextById } from "@/lib/auth";
 import { assertStoreAccess, assertTerminalBelongsToStore } from "@/lib/store-access";
 import { createAuditEvent } from "@/lib/audit";
+import { parseOpeningCashPayload } from "@/lib/opening-denominations";
 
 /** Listado de turnos (propios o con permiso de arqueo). */
 export async function GET(request: Request) {
@@ -78,25 +79,26 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       storeId?: number;
       terminalId?: number;
-      openingCashAmount?: number;
+      openingCashAmount?: number | null;
+      openingDenominations?: unknown;
     };
 
     const storeId = Number(body?.storeId);
     const terminalId = Number(body?.terminalId);
-    const openingCashAmount =
-      body?.openingCashAmount !== undefined && body?.openingCashAmount !== null
-        ? Number(body.openingCashAmount)
-        : NaN;
 
-    if (!Number.isFinite(storeId) || !Number.isFinite(terminalId) || !Number.isFinite(openingCashAmount)) {
+    if (!Number.isFinite(storeId) || !Number.isFinite(terminalId)) {
       return NextResponse.json(
-        { error: "storeId, terminalId y openingCashAmount son obligatorios (numeros validos)" },
+        { error: "storeId y terminalId son obligatorios (numeros validos)" },
         { status: 400 },
       );
     }
-    if (openingCashAmount < 0) {
-      return NextResponse.json({ error: "openingCashAmount no puede ser negativo" }, { status: 400 });
+
+    const parsed = parseOpeningCashPayload(body);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
+
+    const { openingCashAmount, openingDenominationsJson } = parsed;
 
     await assertStoreAccess(session.userId, storeId);
     await assertTerminalBelongsToStore(terminalId, storeId);
@@ -122,6 +124,8 @@ export async function POST(request: Request) {
         userId: session.userId,
         status: "OPEN",
         openingCashAmount,
+        openingDenominationsJson:
+          openingDenominationsJson === null ? Prisma.DbNull : openingDenominationsJson,
       },
       include: {
         user: { select: { id: true, username: true, displayName: true } },
@@ -156,6 +160,11 @@ export async function POST(request: Request) {
       message: `Apertura turno id=${shift.id} caja terminalId=${terminalId}`,
       dataJson: {
         openingCashAmount: String(shift.openingCashAmount),
+        openingMode: parsed.mode,
+        openingDenominations:
+          shift.openingDenominationsJson === null
+            ? null
+            : shift.openingDenominationsJson,
         storeId: shift.storeId,
         terminalId: shift.terminalId,
       } as Prisma.InputJsonValue,

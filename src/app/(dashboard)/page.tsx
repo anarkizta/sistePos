@@ -1,7 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { Search, ShoppingCart, CreditCard, Banknote, Trash2, Plus, Minus } from "lucide-react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import Link from "next/link";
+import {
+  Search,
+  ShoppingCart,
+  CreditCard,
+  Banknote,
+  Trash2,
+  Plus,
+  Minus,
+  Lock,
+  Store,
+} from "lucide-react";
 
 type Product = {
   id: number;
@@ -13,18 +24,72 @@ type Product = {
 
 type CartItem = Product & { quantity: number; cartItemId: string };
 
-import Swal from 'sweetalert2';
+import Swal from "sweetalert2";
+
+type MeResponse = {
+  session: {
+    storeId: number | null;
+    terminalId: number | null;
+    shiftId: number | null;
+    shift: { id: number; status: string } | null;
+  } | null;
+  permissions: string[];
+};
 
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [meLoading, setMeLoading] = useState(true);
+  const [me, setMe] = useState<MeResponse | null>(null);
+
+  const loadMe = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/me");
+      const data = (await res.json()) as MeResponse;
+      setMe(data);
+    } catch {
+      setMe(null);
+    } finally {
+      setMeLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMe();
+    const onFocus = () => {
+      void loadMe();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadMe]);
+
+  const posBlock = useMemo(() => {
+    if (meLoading) {
+      return { blocked: false as const, reason: null as null, loading: true };
+    }
+    if (!me?.session) {
+      return { blocked: true as const, reason: "no_context" as const, loading: false };
+    }
+    const perms = new Set(me.permissions ?? []);
+    if (!perms.has("venta_cobrar")) {
+      return { blocked: false as const, reason: null, loading: false };
+    }
+    const { storeId, terminalId, shift } = me.session;
+    if (!storeId || !terminalId) {
+      return { blocked: true as const, reason: "no_context" as const, loading: false };
+    }
+    if (!shift || shift.status !== "OPEN") {
+      return { blocked: true as const, reason: "no_shift" as const, loading: false };
+    }
+    return { blocked: false as const, reason: null, loading: false };
+  }, [me, meLoading]);
 
   useEffect(() => {
     fetch("/api/productos")
-      .then(res => res.json())
-      .then(data => setProducts(data))
-      .catch(err => console.error(err));
+      .then((res) => res.json())
+      .then((data) => setProducts(data))
+      .catch((err) => console.error(err));
   }, []);
 
   const filteredProducts = products.filter(p => 
@@ -33,7 +98,8 @@ export default function Home() {
   );
 
   const addToCart = (product: Product) => {
-    setCart(prev => {
+    if (posBlock.blocked) return;
+    setCart((prev) => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
         return prev.map(item => 
@@ -45,22 +111,27 @@ export default function Home() {
   };
 
   const updateQuantity = (cartItemId: string, delta: number) => {
-    setCart(prev => prev.map(item => {
-      if (item.cartItemId === cartItemId) {
-        const newQ = item.quantity + delta;
-        return newQ > 0 ? { ...item, quantity: newQ } : item;
-      }
-      return item;
-    }));
+    if (posBlock.blocked) return;
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.cartItemId === cartItemId) {
+          const newQ = item.quantity + delta;
+          return newQ > 0 ? { ...item, quantity: newQ } : item;
+        }
+        return item;
+      }),
+    );
   };
 
   const removeItem = (cartItemId: string) => {
-    setCart(prev => prev.filter(item => item.cartItemId !== cartItemId));
+    if (posBlock.blocked) return;
+    setCart((prev) => prev.filter((item) => item.cartItemId !== cartItemId));
   };
 
   const total = useMemo(() => cart.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0), [cart]);
 
   const procesarPago = (metodo: string) => {
+    if (posBlock.blocked) return;
     Swal.fire({
       title: `Pago con ${metodo}`,
       text: `¿Confirmar pago por $${total.toLocaleString('es-CL')}?`,
@@ -84,8 +155,47 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-full gap-6">
-      <div className="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="relative flex h-full min-h-0 gap-6">
+      {posBlock.loading && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center rounded-xl bg-white/80 backdrop-blur-[2px]">
+          <p className="text-sm font-medium text-slate-600">Verificando turno de caja…</p>
+        </div>
+      )}
+
+      {posBlock.blocked && posBlock.reason && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center rounded-xl bg-slate-900/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl border border-slate-200 text-center space-y-4">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+              <Lock className="h-7 w-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800">Punto de venta bloqueado</h2>
+            {posBlock.reason === "no_context" ? (
+              <p className="text-slate-600 text-sm leading-relaxed">
+                Debes elegir <strong>sucursal</strong> y <strong>caja (terminal)</strong> antes de cobrar.
+                Configuralo en Turnos y vuelve aquí.
+              </p>
+            ) : (
+              <p className="text-slate-600 text-sm leading-relaxed">
+                Antes de la primera venta debes <strong>abrir turno</strong> e ingresar el{" "}
+                <strong>fondo de caja</strong> (apertura por denominaciones) en esa caja.
+              </p>
+            )}
+            <Link
+              href="/turnos"
+              className="inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors"
+            >
+              <Store className="w-5 h-5" />
+              Ir a Turnos / Caja
+            </Link>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`flex flex-1 min-h-0 flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${
+          posBlock.blocked || posBlock.loading ? "pointer-events-none select-none opacity-50" : ""
+        }`}
+      >
         <div className="p-4 border-b border-slate-200">
           <div className="relative">
             <Search className="w-5 h-5 absolute left-3 top-3 text-slate-400" />
@@ -125,7 +235,11 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="w-[450px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div
+        className={`w-[450px] flex flex-col min-h-0 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${
+          posBlock.blocked || posBlock.loading ? "pointer-events-none select-none opacity-50" : ""
+        }`}
+      >
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <ShoppingCart className="w-5 h-5 text-blue-400" />
