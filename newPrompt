@@ -1,0 +1,32 @@
+Actúa como un Ingeniero de Software Full-Stack experto en sistemas POS (Punto de Venta). Necesito crear un clon base de una aplicación web tipo eleventa (sistema de punto de venta rápido para comercios locales). El enfoque principal debe ser el rendimiento offline/local-first, una interfaz rápida que se use al 100% con el teclado, diseño modular y un sistema estricto de Control de Acceso Basado en Roles (RBAC).
+
+Usa un stack moderno: React/Next.js o Vite, Tailwind CSS, y una base de datos local (IndexedDB con Dexie.js o Supabase simulado) para almacenar datos de forma estructurada.
+
+Por favor, genera la aplicación incluyendo un selector visual para cambiar de usuario (o simular login rápido por PIN) y los siguientes módulos con restricciones por rol:
+
+1. SISTEMA DE ROLES Y PERMISOS (Restricciones de Interfaz)
+- Vendedor / Cajero: Solo tiene acceso a la pantalla de Ventas, apertura/cierre de su propio turno y consulta de precios. Bloquear por completo el acceso a inventarios, reportes o configuraciones. Requiere autorización de supervisor para eliminar artículos del carrito o aplicar descuentos mayores al 10%.
+- Supervisor / Gerente: Tiene acceso a Ventas e Inventario (puede modificar stock y precios). Puede autorizar operaciones restringidas de los cajeros mediante un modal de "Aprobación de Supervisor" (simulado con PIN). No puede ver configuraciones del sistema ni reportes financieros globales de la empresa.
+- Administrador: Acceso total y sin restricciones a todos los módulos, reportes de ganancias de todas las cajas, gestión de usuarios/roles y configuración general del sistema.
+
+2. MÓDULO DE VENTAS (Pantalla Principal)
+- Buscador rápido de productos por código de barras o nombre.
+- Tabla/Lista de productos agregados al carrito actual con cantidad, precio unitario, subtotal y opción de eliminar (restringido para Cajero sin PIN de Supervisor).
+- Atajos de teclado obligatorios: F5 (Cobrar), F6 (Buscar producto), F7 (Cambiar cantidad), F8 (Aplicar descuento).
+- Sección de totalizadores bien visibles: Total, Artículos en carrito, Cambio a regresar.
+- Ventana modal de Cobro: Entrada para registrar con cuánto paga el cliente y cálculo automático del cambio. Soporte para múltiples métodos de pago (Efectivo, Tarjeta).
+- Sistema de "Ventas Pendientes" (Tickets en espera).
+
+3. GESTIÓN DE INVENTARIO Y PRODUCTOS (Acceso: Supervisor y Administrador)
+- CRUD completo de productos: Código de barras (SKU), Nombre, Descripción, Precio de costo, Precio de venta, Stock actual, Stock mínimo (alerta de reabastecimiento).
+- Filtro y buscador avanzado en la lista de inventario con indicadores de bajo stock.
+
+4. CONFIGURACIÓN, CONTROL DE CAJA Y REPORTES (Acceso según Rol)
+- Registro de Apertura y Cierre de caja (Turnos): Dinero inicial, ingresos, salidas manuales de efectivo y balance final.
+- Historial básico de transacciones realizadas durante el turno actual.
+- Panel de reportes financieros y auditoría de ventas totales (Solo Administrador).
+
+5. REQUISITOS DE CÓDIGO PARA FUTURAS MODIFICACIONES
+- Escribe el código de forma altamente modular: separa los componentes de la interfaz de la lógica de negocio usando hooks personalizados.
+- Implementa una validación limpia de roles (ej. un componente <ProtectedRoute> o un hook useAuth) que oculte o deshabilite elementos de la UI según el rol activo.
+- Usa un estado global limpio (Context API o Zustand) bien documentado y añade comentarios breves indicando dónde conectar APIs externas o bases de datos en la nube más adelante.
